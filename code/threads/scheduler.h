@@ -13,13 +13,15 @@
 #include "list.h"
 #include "thread.h"
 
+enum policy {PRIORITY, RR, MFQ};
+
 // The following class defines the scheduler/dispatcher abstraction -- 
 // the data structures and operations needed to keep track of which 
 // thread is running, and which threads are ready but not running.
 
 class Scheduler {
-  public:
-    Scheduler();			// Initialize list of ready threads 
+  public: 
+    Scheduler(policy _policy);          // Initialize list of ready threads
     ~Scheduler();			// De-allocate ready list
 
     void ReadyToRun(Thread* thread);	// Thread can be dispatched.
@@ -27,9 +29,12 @@ class Scheduler {
 					// list, if any, and return thread.
     void Run(Thread* nextThread);	// Cause nextThread to start running
     void Print();			// Print contents of ready list
+    bool higherPriorityInList();
+    void changePriority(Thread* thread, int pri);
     
   private:
     List *readyList;  		// queue of threads that are ready to run,
+    policy schedulerPolicy;
 				// but not running
 };
 

@@ -36,7 +36,9 @@
 
 #ifndef THREAD_H
 #define THREAD_H
+#define threadPtr Thread*
 
+#include <queue>
 #include "copyright.h"
 #include "utility.h"
 
@@ -55,12 +57,16 @@
 // WATCH OUT IF THIS ISN'T BIG ENOUGH!!!!!
 #define StackSize	(4 * 1024)	// in words
 
+#define MAX_PRIORITY 31
+
 
 // Thread state
 enum ThreadStatus { JUST_CREATED, RUNNING, READY, BLOCKED };
 
+extern std::queue<int> threadIdPool;
+
 // external function, dummy routine whose sole job is to call Thread::Print
-extern void ThreadPrint(int arg);	 
+extern void ThreadPrint(int arg);
 
 // The following class defines a "thread control block" -- which
 // represents a single thread of execution.
@@ -78,18 +84,21 @@ class Thread {
     // NOTE: DO NOT CHANGE the order of these first two members.
     // THEY MUST be in this position for SWITCH to work.
     int* stackTop;			 // the current stack pointer
-    int machineState[MachineStateSize];  // all registers except for stackTop
+    void *machineState[MachineStateSize];  // all registers except for stackTop
 
   public:
     Thread(char* debugName);		// initialize a Thread 
+    Thread(char* debugName, int _pri);
     ~Thread(); 				// deallocate a Thread
 					// NOTE -- thread being deleted
 					// must not be running when delete 
 					// is called
 
-    // basic thread operations
+    static const threadPtr* getPtrVec() { return threadPtrVec; }
 
-    void Fork(VoidFunctionPtr func, int arg); 	// Make thread run (*func)(arg)
+
+    // basic thread operations
+    void Fork(VoidFunctionPtr func, void *arg); 	// Make thread run (*func)(arg)
     void Yield();  				// Relinquish the CPU if any 
 						// other thread is runnable
     void Sleep();  				// Put the thread to sleep and 
@@ -100,6 +109,12 @@ class Thread {
 						// overflowed its stack
     void setStatus(ThreadStatus st) { status = st; }
     char* getName() { return (name); }
+
+    int getTid() { return tid; }
+    int getUsrID() { return userID; }
+    void setUserID(int user_id) { userID = user_id; }
+    ThreadStatus getStatus() { return status; }
+
     void Print() { printf("%s, ", name); }
 
   private:
@@ -111,9 +126,25 @@ class Thread {
     ThreadStatus status;		// ready, running or blocked
     char* name;
 
-    void StackAllocate(VoidFunctionPtr func, int arg);
+    void StackAllocate(VoidFunctionPtr func, void *arg);
     					// Allocate a stack for thread.
 					// Used internally by Fork()
+    int tid;
+    int userID;
+    static threadPtr* threadPtrVec;
+
+    int priority;
+    int timeSlice;
+    int timeTicks;
+
+  public:
+    int getPri() { return priority; }
+    void setPri(int _pri) { priority = _pri; }
+    void addTicks() { timeTicks += 1; }
+    int getTimeSlice() { return timeSlice; }
+    void updateTimeSlice();
+    bool checkRunningTime() { return timeTicks >= timeSlice; }
+    void clearTicks() { timeTicks = 0; }
 
 #ifdef USER_PROGRAM
 // A thread running a user program actually has *two* sets of CPU registers -- 
@@ -128,6 +159,7 @@ class Thread {
 
     AddrSpace *space;			// User code this thread is running.
 #endif
+
 };
 
 // Magical machine-dependent routines, defined in switch.s

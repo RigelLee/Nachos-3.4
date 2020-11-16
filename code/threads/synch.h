@@ -79,6 +79,8 @@ class Lock {
 
   private:
     char* name;				// for debugging
+    Semaphore* lockSem;
+    Thread* holdingThread;
     // plus some other stuff you'll need to define
 };
 
@@ -131,6 +133,75 @@ class Condition {
 
   private:
     char* name;
+    int count;
+    Semaphore* condSem;
     // plus some other stuff you'll need to define
 };
 #endif // SYNCH_H
+
+//my own
+class bounded_buffer: public List {
+  private:
+    int size;
+  public:
+    bounded_buffer(int buffer_size);
+    ~bounded_buffer();
+    bool IsFull();
+};
+
+class ProducerConsumer_condition {
+  public:
+    ProducerConsumer_condition(int buffer_size);
+    ~ProducerConsumer_condition();
+    void Produce();
+    void Consume();
+
+  private:
+    bounded_buffer* buffer;
+    Lock* bufLock;
+    Condition* condPro;
+    Condition* condCon;
+};
+
+class ProducerConsumer_semaphore {
+  public:
+    ProducerConsumer_semaphore(int buffer_size);
+    ~ProducerConsumer_semaphore();
+    void Produce();
+    void Consume();
+
+  private:
+    bounded_buffer* buffer;
+    Semaphore* mutex;
+    Semaphore* empty;
+    Semaphore* full;
+};
+
+class Barrier {
+  public:
+    Barrier(char* debugName, int threadNum);
+    ~Barrier();
+    void AlignedBarrier();
+  private:
+    char* name;
+    int totThreadNum;
+    int arrivedThreadNum;
+    Lock* conditionLock;
+    Condition* condIn;
+    Condition* condOut;
+};
+
+class ReaderWriterLock {
+  public:
+    ReaderWriterLock(char* debugName);
+    ~ReaderWriterLock();
+    void readAcquire();
+    void readRelease();
+    void writeAcquire();
+    void writeRelease();
+  public:
+    char* name;
+    int readersCount;
+    Lock* mutex;
+    Lock* writeLock;
+};

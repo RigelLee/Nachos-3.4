@@ -49,8 +49,12 @@ class List {
     void Append(void *item); 	// Put item at the end of the list
     void *Remove(); 	 	// Take item off the front of the list
 
+    void Remove(void *item);    // Remove specific item from list
+
     void Mapcar(VoidFunctionPtr func);	// Apply "func" to every element 
 					// on the list
+    unsigned int NumInList() { return numInList;};
+
     bool IsEmpty();		// is the list empty? 
     
 
@@ -58,9 +62,12 @@ class List {
     void SortedInsert(void *item, int sortKey);	// Put item into list
     void *SortedRemove(int *keyPtr); 	  	// Remove first item from list
 
+    int highestPriority();
+
   private:
     ListElement *first;  	// Head of the list, NULL if list is empty
     ListElement *last;		// Last element of list
+    int numInList;		// number of elements in list
 };
 
 #endif // LIST_H

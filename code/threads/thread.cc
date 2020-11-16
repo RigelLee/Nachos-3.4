@@ -14,6 +14,7 @@
 // All rights reserved.  See copyright.h for copyright notice and limitation 
 // of liability and disclaimer of warranty provisions.
 
+#include <cmath>
 #include "copyright.h"
 #include "thread.h"
 #include "switch.h"
@@ -24,6 +25,9 @@
 					// execution stack, for detecting 
 					// stack overflows
 
+std::queue<int> threadIdPool;
+threadPtr* Thread::threadPtrVec = new threadPtr[MAX_TID]();
+
 //----------------------------------------------------------------------
 // Thread::Thread
 // 	Initialize a thread control block, so that we can then call
@@ -32,15 +36,60 @@
 //	"threadName" is an arbitrary string, useful for debugging.
 //----------------------------------------------------------------------
 
+
 Thread::Thread(char* threadName)
 {
+    if (threadIdPool.empty())
+        fprintf(stderr, "Error!Exceeds the maximum number of threads available.\n");
+    ASSERT(!threadIdPool.empty());
+    
+    tid = threadIdPool.front();
+    threadIdPool.pop();
+
+    userID = 0;
+    priority = MAX_PRIORITY;
+    timeTicks = 0;
+    timeSlice = 100;
+
     name = threadName;
     stackTop = NULL;
     stack = NULL;
-    status = JUST_CREATED;
+    status = JUST_CREATED;         
 #ifdef USER_PROGRAM
     space = NULL;
 #endif
+
+    threadPtrVec[tid] = this;
+}
+
+Thread::Thread(char* threadName, int _pri) : priority(min(max(_pri, 0), MAX_PRIORITY))
+{
+    if (threadIdPool.empty())
+        fprintf(stderr, "Error!Exceeds the maximum number of threads available.\n");
+    ASSERT(!threadIdPool.empty());
+    
+    tid = threadIdPool.front();
+    threadIdPool.pop();
+
+    userID = 0;
+    timeTicks = 0;
+    updateTimeSlice();
+
+    name = threadName;
+    stackTop = NULL;
+    stack = NULL;
+    status = JUST_CREATED;         
+#ifdef USER_PROGRAM
+    space = NULL;
+#endif
+
+    threadPtrVec[tid] = this;
+}
+
+void 
+Thread::updateTimeSlice()
+{ 
+    timeSlice = 100 * sqrt((MAX_PRIORITY + 1) * 1.0 / (priority + 1)); 
 }
 
 //----------------------------------------------------------------------
@@ -62,6 +111,9 @@ Thread::~Thread()
     ASSERT(this != currentThread);
     if (stack != NULL)
 	DeallocBoundedArray((char *) stack, StackSize * sizeof(int));
+
+    threadPtrVec[tid] = NULL;
+    threadIdPool.push(tid);
 }
 
 //----------------------------------------------------------------------
@@ -85,10 +137,10 @@ Thread::~Thread()
 //----------------------------------------------------------------------
 
 void 
-Thread::Fork(VoidFunctionPtr func, int arg)
+Thread::Fork(VoidFunctionPtr func, void *arg)
 {
     DEBUG('t', "Forking thread \"%s\" with func = 0x%x, arg = %d\n",
-	  name, (int) func, arg);
+	  name, (int) func, (int*) arg);
     
     StackAllocate(func, arg);
 
@@ -183,8 +235,11 @@ Thread::Yield ()
     
     nextThread = scheduler->FindNextToRun();
     if (nextThread != NULL) {
-	scheduler->ReadyToRun(this);
-	scheduler->Run(nextThread);
+	    scheduler->ReadyToRun(this);
+	    scheduler->Run(nextThread);
+    }
+    else {
+        currentThread->clearTicks();
     }
     (void) interrupt->SetLevel(oldLevel);
 }
@@ -220,8 +275,8 @@ Thread::Sleep ()
 
     status = BLOCKED;
     while ((nextThread = scheduler->FindNextToRun()) == NULL)
-	interrupt->Idle();	// no one to run, wait for an interrupt
-        
+	    interrupt->Idle();	// no one to run, wait for an interrupt
+   
     scheduler->Run(nextThread); // returns when we've been signalled
 }
 
@@ -250,7 +305,7 @@ void ThreadPrint(int arg){ Thread *t = (Thread *)arg; t->Print(); }
 //----------------------------------------------------------------------
 
 void
-Thread::StackAllocate (VoidFunctionPtr func, int arg)
+Thread::StackAllocate (VoidFunctionPtr func, void *arg)
 {
     stack = (int *) AllocBoundedArray(StackSize * sizeof(int));
 
@@ -276,11 +331,11 @@ Thread::StackAllocate (VoidFunctionPtr func, int arg)
     *stack = STACK_FENCEPOST;
 #endif  // HOST_SNAKE
     
-    machineState[PCState] = (int) ThreadRoot;
-    machineState[StartupPCState] = (int) InterruptEnable;
-    machineState[InitialPCState] = (int) func;
+    machineState[PCState] = (int*)ThreadRoot;
+    machineState[StartupPCState] = (int*)InterruptEnable;
+    machineState[InitialPCState] = (int*)func;
     machineState[InitialArgState] = arg;
-    machineState[WhenDonePCState] = (int) ThreadFinish;
+    machineState[WhenDonePCState] = (int*)ThreadFinish;
 }
 
 #ifdef USER_PROGRAM

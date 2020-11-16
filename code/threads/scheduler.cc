@@ -27,10 +27,10 @@
 // 	Initialize the list of ready but not running threads to empty.
 //----------------------------------------------------------------------
 
-Scheduler::Scheduler()
+Scheduler::Scheduler(policy _policy) : schedulerPolicy(_policy)
 { 
     readyList = new List; 
-} 
+}
 
 //----------------------------------------------------------------------
 // Scheduler::~Scheduler
@@ -56,7 +56,15 @@ Scheduler::ReadyToRun (Thread *thread)
     DEBUG('t', "Putting thread %s on ready list.\n", thread->getName());
 
     thread->setStatus(READY);
-    readyList->Append((void *)thread);
+    switch (schedulerPolicy)
+    {
+        case MFQ:
+            thread->clearTicks();
+        case PRIORITY:  
+            readyList->SortedInsert((void *)thread, thread->getPri()); break;
+        case RR:
+            thread->clearTicks(); readyList->Append((void *)thread); break;
+    }
 }
 
 //----------------------------------------------------------------------
@@ -70,7 +78,17 @@ Scheduler::ReadyToRun (Thread *thread)
 Thread *
 Scheduler::FindNextToRun ()
 {
-    return (Thread *)readyList->Remove();
+    switch (schedulerPolicy)
+    {
+        case MFQ:
+        case PRIORITY:  
+            if (readyList->highestPriority() >= currentThread->getPri() || currentThread->getStatus() != RUNNING) 
+                return (Thread *)readyList->Remove();
+            else
+                return NULL;
+        case RR:
+            return (Thread *)readyList->Remove();
+    }
 }
 
 //----------------------------------------------------------------------
@@ -123,7 +141,7 @@ Scheduler::Run (Thread *nextThread)
     // point, we were still running on the old thread's stack!
     if (threadToBeDestroyed != NULL) {
         delete threadToBeDestroyed;
-	threadToBeDestroyed = NULL;
+	    threadToBeDestroyed = NULL;
     }
     
 #ifdef USER_PROGRAM
@@ -144,4 +162,22 @@ Scheduler::Print()
 {
     printf("Ready list contents:\n");
     readyList->Mapcar((VoidFunctionPtr) ThreadPrint);
+}
+
+bool 
+Scheduler::higherPriorityInList()
+{
+    return (schedulerPolicy == PRIORITY || schedulerPolicy == MFQ) && readyList->highestPriority() > currentThread->getPri();
+}
+
+void 
+Scheduler::changePriority(Thread* thread, int pri)
+{
+    if (schedulerPolicy != MFQ) 
+        return;
+    if (pri < 0)
+        return;
+
+    thread->setPri(pri);
+    thread->updateTimeSlice();
 }

@@ -67,8 +67,8 @@ Semaphore::P()
     IntStatus oldLevel = interrupt->SetLevel(IntOff);	// disable interrupts
     
     while (value == 0) { 			// semaphore not available
-	queue->Append((void *)currentThread);	// so go to sleep
-	currentThread->Sleep();
+        queue->Append((void *)currentThread);	// so go to sleep
+        currentThread->Sleep();
     } 
     value--; 					// semaphore available, 
 						// consume its value
@@ -92,7 +92,7 @@ Semaphore::V()
 
     thread = (Thread *)queue->Remove();
     if (thread != NULL)	   // make thread ready, consuming the V immediately
-	scheduler->ReadyToRun(thread);
+	    scheduler->ReadyToRun(thread);
     value++;
     (void) interrupt->SetLevel(oldLevel);
 }
@@ -100,13 +100,306 @@ Semaphore::V()
 // Dummy functions -- so we can compile our later assignments 
 // Note -- without a correct implementation of Condition::Wait(), 
 // the test case in the network assignment won't work!
-Lock::Lock(char* debugName) {}
-Lock::~Lock() {}
-void Lock::Acquire() {}
-void Lock::Release() {}
+Lock::Lock(char* debugName)
+{
+    name = debugName;
+    lockSem = new Semaphore(debugName, 1);
+    holdingThread = NULL;
+}
 
-Condition::Condition(char* debugName) { }
-Condition::~Condition() { }
-void Condition::Wait(Lock* conditionLock) { ASSERT(FALSE); }
-void Condition::Signal(Lock* conditionLock) { }
-void Condition::Broadcast(Lock* conditionLock) { }
+Lock::~Lock()
+{
+    holdingThread = NULL;
+    delete lockSem;
+}
+
+bool Lock::isHeldByCurrentThread()
+{
+    return currentThread == holdingThread;
+}
+
+void Lock::Acquire()
+{
+    IntStatus oldLevel = interrupt->SetLevel(IntOff);
+
+    lockSem->P();
+    holdingThread = currentThread;
+
+    (void) interrupt->SetLevel(oldLevel);
+}
+
+void Lock::Release()
+{
+    IntStatus oldLevel = interrupt->SetLevel(IntOff);
+    ASSERT(currentThread == holdingThread);
+
+    holdingThread = NULL;
+    lockSem->V();
+
+    (void) interrupt->SetLevel(oldLevel);
+}
+
+Condition::Condition(char* debugName)
+{
+    name = debugName;
+    count = 0;
+    condSem = new Semaphore(debugName, 0);
+}
+
+Condition::~Condition()
+{
+    delete condSem;
+}
+
+void Condition::Wait(Lock* conditionLock)
+{
+    ASSERT(conditionLock->isHeldByCurrentThread());
+
+    count++;
+    conditionLock->Release();
+    condSem->P();
+    conditionLock->Acquire();
+}
+
+void Condition::Signal(Lock* conditionLock)
+{
+    ASSERT(conditionLock->isHeldByCurrentThread());
+    if (count == 0)
+        return;
+    
+    count--;
+    condSem->V();
+}
+
+void Condition::Broadcast(Lock* conditionLock)
+{
+    ASSERT(conditionLock->isHeldByCurrentThread());
+
+    while(count){
+        count--;
+        condSem->V();
+    }
+}
+
+
+//My own
+
+void itemPrint(int arg)
+{
+    int *item = (int *) arg;
+    printf("%d, ", *item);
+}
+
+bounded_buffer::bounded_buffer(int buffer_size)
+{
+    size = buffer_size;
+}
+
+bounded_buffer::~bounded_buffer()
+{
+    //do nothing
+}
+
+bool bounded_buffer::IsFull()
+{
+    return NumInList() == size;
+}
+
+ProducerConsumer_condition::ProducerConsumer_condition(int buffer_size)
+{
+    buffer = new bounded_buffer(buffer_size);
+    bufLock = new Lock("PCcond_lock");
+    condPro = new Condition("pro_cond");
+    condCon = new Condition("con_cond");
+}
+
+ProducerConsumer_condition::~ProducerConsumer_condition()
+{
+    delete condCon;
+    delete condPro;
+    delete bufLock;
+    delete buffer;
+}
+
+static void
+ProducerConsumer_condition::Produce()
+{
+    int count = 0;
+    while (1) {
+        int *item = new int;
+        *item = count++;
+
+        bufLock->Acquire();
+        while (buffer->IsFull())
+            condPro->Wait(bufLock);
+        
+        buffer->Append((void *) item);
+        printf("\nProduces an integer variable with value of %d.\n", *item);
+        printf("buffer: ");
+        buffer->Mapcar(itemPrint);
+        printf("\n");
+
+        condCon->Signal(bufLock);
+        bufLock->Release();
+    }
+}
+
+static void
+ProducerConsumer_condition::Consume()
+{
+    while (1) {
+        bufLock->Acquire();
+        while (buffer->IsEmpty())
+            condCon->Wait(bufLock);
+        
+        int *item = (int *) buffer->Remove();
+        printf("\nConsume an integer variable with value of %d.\n", *item);
+        printf("buffer: ");
+        buffer->Mapcar(itemPrint);
+        printf("\n");
+        delete item;
+
+        condPro->Signal(bufLock);
+        bufLock->Release();
+    }
+}
+
+ProducerConsumer_semaphore::ProducerConsumer_semaphore(int buffer_size)
+{
+    buffer = new bounded_buffer(buffer_size);
+    mutex = new Semaphore("PCcond_lock", 1);
+    empty = new Semaphore("pro_lock", buffer_size);
+    full = new Semaphore("con_lock", 0);
+}
+
+ProducerConsumer_semaphore::~ProducerConsumer_semaphore()
+{
+    delete full;
+    delete empty;
+    delete mutex;
+    delete buffer;
+}
+
+void ProducerConsumer_semaphore::Produce()
+{
+    int count = 0;
+    while (1) {
+        int *item = new int;
+        *item = count++;
+        
+        empty->P();
+        mutex->P();
+        
+        buffer->Append((void *) item);
+        printf("\nProduces an integer variable with value of %d.\n", *item);
+        printf("buffer: ");
+        buffer->Mapcar(itemPrint);
+        printf("\n");
+
+        mutex->V();
+        full->V();
+    }
+}
+
+void ProducerConsumer_semaphore::Consume()
+{
+    while (1) {
+        full->P();
+        mutex->P();
+        
+        int *item = (int *) buffer->Remove();
+        printf("\nConsume an integer variable with value of %d.\n", *item);
+        printf("buffer: ");
+        buffer->Mapcar(itemPrint);
+        printf("\n");
+        delete item;
+
+        mutex->V();
+        empty->V();
+    }
+}
+
+
+Barrier::Barrier(char* debugName, int threadNum)
+{
+    name = debugName;
+    totThreadNum = threadNum;
+    arrivedThreadNum = 0;
+    conditionLock = new Lock("Barrier Lock");
+    condIn = new Condition("Barrier In");
+    condOut = new Condition("Barrier Out");
+}
+
+Barrier::~Barrier()
+{
+    delete condOut;
+    delete condIn;
+    delete conditionLock;
+}
+
+void Barrier::AlignedBarrier()
+{
+    conditionLock->Acquire();
+
+    arrivedThreadNum++;
+    if (arrivedThreadNum == totThreadNum)
+        condIn->Broadcast(conditionLock);
+    else
+        condIn->Wait(conditionLock);
+
+    arrivedThreadNum--;
+    if (arrivedThreadNum == 0)
+        condOut->Broadcast(conditionLock);
+    else
+        condOut->Wait(conditionLock);
+
+    conditionLock->Release();
+}
+
+ReaderWriterLock::ReaderWriterLock(char* debugName)
+{
+    name = debugName;
+    readersCount = 0;
+    mutex = new Lock("mutex");
+    writeLock = new Lock("writeLock");
+}
+
+ReaderWriterLock::~ReaderWriterLock()
+{
+    delete writeLock;
+    delete mutex;
+}
+
+void ReaderWriterLock::readAcquire()
+{
+    mutex->Acquire();
+    readersCount++;
+    if (readersCount == 1)
+        writeLock->Acquire();
+    mutex->Release();
+}
+
+void ReaderWriterLock::readRelease()
+{
+    mutex->Acquire();
+    readersCount--;
+    if (writeLock->isHeldByCurrentThread()) {
+        while (readersCount != 0) {
+            mutex->Release();
+            currentThread->Yield();
+            mutex->Acquire();
+        }
+        writeLock->Release();
+    }
+    mutex->Release();
+}
+
+void ReaderWriterLock::writeAcquire()
+{
+    writeLock->Acquire();
+}
+
+void ReaderWriterLock::writeRelease()
+{
+    writeLock->Release();
+}

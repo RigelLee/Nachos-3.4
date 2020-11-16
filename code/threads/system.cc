@@ -60,8 +60,11 @@ extern void Cleanup();
 static void
 TimerInterruptHandler(int dummy)
 {
-    if (interrupt->getStatus() != IdleMode)
-	interrupt->YieldOnReturn();
+    currentThread->addTicks();
+    if (interrupt->getStatus() != IdleMode && currentThread->checkRunningTime()){
+        scheduler->changePriority(currentThread, currentThread->getPri() - 1);
+	    interrupt->YieldOnReturn();
+    }
 }
 
 //----------------------------------------------------------------------
@@ -78,6 +81,7 @@ void
 Initialize(int argc, char **argv)
 {
     int argCount;
+    policy argPolicy = PRIORITY;
     char* debugArgs = "";
     bool randomYield = FALSE;
 
@@ -107,6 +111,11 @@ Initialize(int argc, char **argv)
 						// number generator
 	    randomYield = TRUE;
 	    argCount = 2;
+	} else if (!strcmp(*argv, "--policy")) {
+	    ASSERT(argc > 1);
+	    argPolicy = policy(atoi(*(argv + 1)));	// initialize pseudo-random
+						// number generator
+	    argCount = 2;
 	}
 #ifdef USER_PROGRAM
 	if (!strcmp(*argv, "-s"))
@@ -132,9 +141,13 @@ Initialize(int argc, char **argv)
     DebugInit(debugArgs);			// initialize DEBUG messages
     stats = new Statistics();			// collect statistics
     interrupt = new Interrupt;			// start up interrupt handling
-    scheduler = new Scheduler();		// initialize the ready queue
-    if (randomYield)				// start the timer (if needed)
-	timer = new Timer(TimerInterruptHandler, 0, randomYield);
+    scheduler = new Scheduler(argPolicy);		// initialize the ready queue
+    if (randomYield || argPolicy == RR || argPolicy == MFQ)				// start the timer (if needed)
+	    timer = new Timer(TimerInterruptHandler, 0, randomYield);
+    
+    for (int i = 0; i < MAX_TID; i++){
+        threadIdPool.push(i);
+    }
 
     threadToBeDestroyed = NULL;
 
@@ -195,3 +208,22 @@ Cleanup()
     Exit(0);
 }
 
+void TS(){
+    DEBUG('t', "Invoking TS(): Output thread status.\n");
+    const char *statusName[4] = { "JUST_CREATED", "RUNNING", "READY", "BLOCKED" };
+
+    printf("--------------Invoke TS()--------------\n");
+    printf("%s\t\t%s\t\t%s\t\t%s\t%s\t\t%s\n", "Name", "Tid", "UserID", "Priority", "TimeSlice", "Status");
+
+    const threadPtr* tVecRef = Thread::getPtrVec();
+
+    Thread *tPtr;
+    for (int i = 0; i < MAX_TID; i++){
+        tPtr = tVecRef[i];
+        if (tPtr == NULL)
+            continue;
+        printf("%s\t\t%d\t\t%d\t\t%d\t\t%d\t\t%s\n", tPtr->getName(), tPtr->getTid(), tPtr->getUsrID(), tPtr->getPri(), tPtr->getTimeSlice(), statusName[int(tPtr->getStatus())]);
+    }
+    tPtr = NULL;
+    printf("--------------Exit TS()--------------\n");
+}
